@@ -300,24 +300,32 @@ button:hover {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    width: 100%;
-    padding: 15px;
-    background: #f5f5f5;
-    border-top: 2px solid #ddd;
-    flex-shrink: 0;
+    padding: 10px 20px;
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 10px;
+    margin-top: 10px;
 }
 
 .playerInfo, .enemyInfo {
-    font-size: 16px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.playerName {
+    display: flex;
+    align-items: center;
+    gap: 3px;
     font-weight: bold;
 }
 
-.playerInfo {
-    color: #2196F3;
+.rating {
+    color: #666;
+    font-size: 0.9em;
 }
 
-.enemyInfo {
-    color: #f44336;
+.cardCount {
+    color: #333;
 }
 
 /* ゲームエリアの調整 */
