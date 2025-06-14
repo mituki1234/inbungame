@@ -15,11 +15,42 @@
         <div class="connectScreen" id="connectScreen">
             <div class="connectContent">
                 <h2>素数カード対戦</h2>
-                <div class="playerInput">
-                    <label>プレイヤー名: </label>
-                    <input type="text" id="playerName" placeholder="プレイヤー名を入力" maxlength="20">
+                
+                <!-- 認証方法選択 -->
+                <div class="authMode">
+                    <div class="authTabs">
+                        <button class="authTab active" onclick="switchAuthMode('login')">ログイン/新規登録</button>
+                        <button class="authTab" onclick="switchAuthMode('guest')">ゲストプレイ</button>
+                    </div>
                 </div>
-                <button id="joinButton" onclick="joinGame()">参加</button>
+                
+                <!-- ログイン/新規登録フォーム -->
+                <div class="authForm" id="loginForm">
+                    <div class="playerInput">
+                        <label>ユーザー名: </label>
+                        <input type="text" id="username" placeholder="ユーザー名を入力" maxlength="20">
+                    </div>
+                    <div class="playerInput">
+                        <label>パスワード: </label>
+                        <input type="password" id="password" placeholder="パスワード（省略可）">
+                    </div>
+                    <div class="authNote">
+                        <p>※ パスワードを設定しない場合、誰でもこのユーザー名でログインできます</p>
+                        <p>※ 新規ユーザーの場合、自動的にアカウントが作成されます</p>
+                    </div>
+                    <button id="loginButton" onclick="loginUser()">ログイン/新規登録</button>
+                </div>
+                
+                <!-- ゲストフォーム -->
+                <div class="authForm" id="guestForm" style="display: none;">
+                    <div class="guestNote">
+                        <p>ゲストとして参加します</p>
+                        <p>※ レート変動はありません</p>
+                        <p>※ 戦績は保存されません</p>
+                    </div>
+                    <button id="guestButton" onclick="joinAsGuest()">ゲスト参加</button>
+                </div>
+                
                 <div id="connectionStatus">サーバーに接続中...</div>
             </div>
         </div>
@@ -40,6 +71,7 @@
                 </div>
                 <div class="playerInfo">
                     <p>プレイヤー: <span id="currentPlayerName"></span></p>
+                    <p id="guestIndicator" style="display: none; color: #ff6b6b;">ゲストユーザー</p>
                 </div>
                 
                 <!-- マッチング選択 -->
@@ -62,6 +94,10 @@
                     <p>ルームコード: <strong id="roomCode"></strong></p>
                     <p>相手がこのコードを入力するまで待機中...</p>
                     <button onclick="cancelCustomRoom()">キャンセル</button>
+                </div>
+                
+                <div class="logoutControl">
+                    <button onclick="logout()">ログアウト</button>
                 </div>
             </div>
         </div>
@@ -143,17 +179,18 @@
         // ゲーム状態
         let currentGameId = null;
         let isMatching = false;
-        let playerName = '';
         let playerDisplayName = '';
         let isConnected = false;
         let currentRoomCode = null;
+        let isGuest = false;
+        let currentAuthMode = 'login';
 
         // 接続イベント
         socket.on('connect', () => {
             console.log('サーバーに接続しました');
             isConnected = true;
             document.getElementById('connectionStatus').textContent = 'サーバーに接続しました';
-            document.getElementById('joinButton').disabled = false;
+            updateAuthButtons();
         });
 
         socket.on('disconnect', () => {
@@ -163,13 +200,35 @@
             showScreen('connectScreen');
         });
 
-        // プレイヤー登録
-        function joinGame() {
-            const nameInput = document.getElementById('playerName');
-            const name = nameInput.value.trim();
+        // 認証モード切り替え
+        function switchAuthMode(mode) {
+            currentAuthMode = mode;
             
-            if (!name) {
-                alert('プレイヤー名を入力してください');
+            document.querySelectorAll('.authTab').forEach(tab => tab.classList.remove('active'));
+            document.querySelector(`[onclick="switchAuthMode('${mode}')"]`).classList.add('active');
+            
+            if (mode === 'guest') {
+                document.getElementById('loginForm').style.display = 'none';
+                document.getElementById('guestForm').style.display = 'block';
+            } else {
+                document.getElementById('loginForm').style.display = 'block';
+                document.getElementById('guestForm').style.display = 'none';
+            }
+        }
+
+        // 認証ボタンの状態更新
+        function updateAuthButtons() {
+            document.getElementById('loginButton').disabled = !isConnected;
+            document.getElementById('guestButton').disabled = !isConnected;
+        }
+
+        // ユーザーログイン
+        function loginUser() {
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+            
+            if (!username) {
+                alert('ユーザー名を入力してください');
                 return;
             }
             
@@ -178,20 +237,76 @@
                 return;
             }
             
-            playerName = name;
-            socket.emit('joinGame', { name: playerName });
+            socket.emit('joinGame', { 
+                username: username, 
+                password: password || null,
+                isGuest: false 
+            });
         }
 
+        // ゲスト参加
+        function joinAsGuest() {
+            if (!isConnected) {
+                alert('サーバーに接続していません');
+                return;
+            }
+            
+            socket.emit('joinGame', { 
+                username: null, 
+                password: null,
+                isGuest: true 
+            });
+        }
+
+        // 認証成功
         socket.on('playerRegistered', (data) => {
             console.log('プレイヤー登録完了:', data);
             playerDisplayName = data.displayName;
+            isGuest = data.isGuest;
+            
             document.getElementById('currentPlayerName').textContent = playerDisplayName;
+            
+            if (isGuest) {
+                document.getElementById('guestIndicator').style.display = 'block';
+                document.getElementById('startMatchingButton').textContent = 'ランクマッチ開始（ゲストは参加不可）';
+                document.getElementById('startMatchingButton').disabled = true;
+            } else {
+                document.getElementById('guestIndicator').style.display = 'none';
+                document.getElementById('startMatchingButton').textContent = 'ランクマッチ開始';
+                document.getElementById('startMatchingButton').disabled = false;
+            }
+            
             showScreen('startScreen');
         });
 
+        // 認証エラー
+        socket.on('authError', (data) => {
+            console.error('認証エラー:', data.message);
+            alert('認証エラー: ' + data.message);
+        });
+
+        // ログアウト
+        function logout() {
+            showScreen('connectScreen');
+            // フォームリセット
+            document.getElementById('username').value = '';
+            document.getElementById('password').value = '';
+            document.getElementById('roomCodeInput').value = '';
+            
+            // 状態リセット
+            currentGameId = null;
+            isMatching = false;
+            currentRoomCode = null;
+            isGuest = false;
+            
+            // ボタン状態リセット
+            document.getElementById('startMatchingButton').disabled = false;
+            document.getElementById('startMatchingButton').textContent = 'ランクマッチ開始';
+        }
+
         // ランクマッチング開始
         function startMatching() {
-            if (isMatching) return;
+            if (isMatching || isGuest) return;
             
             isMatching = true;
             socket.emit('startMatching');
@@ -418,7 +533,7 @@
             }
             
             // レート変動表示（ランクマッチのみ）
-            if (!data.isCustom) {
+            if (!data.isCustom && !isGuest) {
                 ratingChange.style.display = 'block';
                 const changeText = data.ratingChange >= 0 ? `+${data.ratingChange}` : `${data.ratingChange}`;
                 ratingChangeText.textContent = `レート変動: ${changeText}`;
@@ -495,7 +610,7 @@
         // 初期化
         window.addEventListener('load', () => {
             showScreen('connectScreen');
-            document.getElementById('joinButton').disabled = !isConnected;
+            updateAuthButtons();
         });
 
         // ページ離脱時の処理
