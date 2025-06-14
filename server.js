@@ -388,9 +388,13 @@ class GameState {
             targetValue: this.targetValue,
             myCards: isPlayer1 ? this.player1Cards : this.player2Cards,
             myDeckCount: isPlayer1 ? this.player1Deck.length : this.player2Deck.length,
-            opponentCards: isPlayer1 ? this.player2Cards : this.player1Cards, // 相手のカードも送信
+            opponentCards: isPlayer1 ? this.player2Cards : this.player1Cards,
             opponentDeckCount: isPlayer1 ? this.player2Deck.length : this.player1Deck.length,
             opponentName: isPlayer1 ? this.player2.displayName : this.player1.displayName,
+            opponentUsername: isPlayer1 ? this.player2.username : this.player1.username, // ユーザー名追加
+            opponentRating: isPlayer1 ? this.player2.rating : this.player1.rating, // レート追加
+            myUsername: isPlayer1 ? this.player1.username : this.player2.username, // 自分のユーザー名追加
+            myRating: isPlayer1 ? this.player1.rating : this.player2.rating, // 自分のレート追加
             status: this.status,
             lastUpdate: this.lastUpdate
         };
@@ -448,6 +452,7 @@ io.on('connection', (socket) => {
             return;
         }
 
+        // ゲストユーザーもランクマッチに参加可能に変更
         if (!waitingPlayers.includes(socket.id)) {
             waitingPlayers.push(socket.id);
             
@@ -728,25 +733,25 @@ function endGame(gameId) {
     
     let ratingChanges = { player1: 0, player2: 0 };
     
-    // ランクマッチの場合のみレート変動
+    // ランクマッチでゲストではない場合のみレート変動
     if (!game.isCustom && (isPlayer1Winner || isPlayer2Winner)) {
-        ratingChanges.player1 = calculateRatingChange(player1.rating, player2.rating, isPlayer1Winner);
-        ratingChanges.player2 = calculateRatingChange(player2.rating, player1.rating, isPlayer2Winner);
+        // プレイヤー1のレート変動（ゲストでない場合のみ）
+        if (!player1.is_guest) {
+            ratingChanges.player1 = calculateRatingChange(player1.rating, player2.rating, isPlayer1Winner);
+            player1.rating = Math.max(1000, Math.min(6000, player1.rating + ratingChanges.player1));
+            player1.displayName = `${player1.pronoun}(${player1.rating})`;
+            updateUserRating(player1.id, player1.rating, isPlayer1Winner);
+            players.set(game.player1.socketId, player1);
+        }
         
-        // レート更新
-        player1.rating = Math.max(1000, Math.min(6000, player1.rating + ratingChanges.player1));
-        player2.rating = Math.max(1000, Math.min(6000, player2.rating + ratingChanges.player2));
-        
-        // 表示名更新
-        player1.displayName = `${player1.pronoun}(${player1.rating})`;
-        player2.displayName = `${player2.pronoun}(${player2.rating})`;
-        
-        // データベースに保存
-        updateUserRating(player1.id, player1.rating, isPlayer1Winner);
-        updateUserRating(player2.id, player2.rating, isPlayer2Winner);
-        
-        players.set(game.player1.socketId, player1);
-        players.set(game.player2.socketId, player2);
+        // プレイヤー2のレート変動（ゲストでない場合のみ）
+        if (!player2.is_guest) {
+            ratingChanges.player2 = calculateRatingChange(player2.rating, player1.rating, isPlayer2Winner);
+            player2.rating = Math.max(1000, Math.min(6000, player2.rating + ratingChanges.player2));
+            player2.displayName = `${player2.pronoun}(${player2.rating})`;
+            updateUserRating(player2.id, player2.rating, isPlayer2Winner);
+            players.set(game.player2.socketId, player2);
+        }
     }
     
     // 結果送信
@@ -756,7 +761,8 @@ function endGame(gameId) {
         opponentName: player2.displayName,
         ratingChange: ratingChanges.player1,
         newRating: player1.rating,
-        isCustom: game.isCustom
+        isCustom: game.isCustom,
+        isGuest: player1.is_guest
     });
     
     io.to(game.player2.socketId).emit('gameEnd', {
@@ -765,7 +771,8 @@ function endGame(gameId) {
         opponentName: player1.displayName,
         ratingChange: ratingChanges.player2,
         newRating: player2.rating,
-        isCustom: game.isCustom
+        isCustom: game.isCustom,
+        isGuest: player2.is_guest
     });
     
     console.log(`ゲーム終了: ${game.gameId}, 勝者: ${game.winner || '引き分け'}, レート変動: P1(${ratingChanges.player1}) P2(${ratingChanges.player2})`);
