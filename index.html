@@ -71,7 +71,9 @@
                 </div>
                 <div class="playerInfo">
                     <p>プレイヤー: <span id="currentPlayerName"></span></p>
-                    <p id="guestIndicator" style="display: none; color: #ff6b6b;">ゲストユーザー</p>
+                    <p id="guestIndicator" style="display: none; color: #ff6b6b;">
+                        ゲストユーザー - レート変動なし（参加は可能）
+                    </p>
                 </div>
                 
                 <!-- マッチング選択 -->
@@ -132,7 +134,10 @@
                     <span id="gameType"></span>
                 </div>
                 <div class="opponentInfo">
-                    <span id="opponentName">対戦相手</span>
+                    <div class="opponentName">
+                        <span id="opponentUsername">対戦相手</span>
+                        <span id="opponentRating" class="rating">(3000)</span>
+                    </div>
                 </div>
             </div>
             
@@ -158,10 +163,18 @@
             
             <div class="gameInfo">
                 <div class="playerInfo">
-                    <span>あなた: <span id="playerCardCount">0</span>枚</span>
+                    <span class="playerName">
+                        <span id="myUsername">あなた</span>
+                        <span id="myRating" class="rating">(3000)</span>
+                    </span>
+                    <span class="cardCount">: <span id="playerCardCount">0</span>枚</span>
                 </div>
                 <div class="enemyInfo">
-                    <span>相手: <span id="enemyCardCount">0</span>枚</span>
+                    <span class="playerName">
+                        <span id="opponentUsernameBottom">相手</span>
+                        <span id="opponentRatingBottom" class="rating">(3000)</span>
+                    </span>
+                    <span class="cardCount">: <span id="enemyCardCount">0</span>枚</span>
                 </div>
             </div>
         </div>
@@ -180,6 +193,8 @@
         let currentGameId = null;
         let isMatching = false;
         let playerDisplayName = '';
+        let playerUsername = '';
+        let playerRating = 3000;
         let isConnected = false;
         let currentRoomCode = null;
         let isGuest = false;
@@ -262,14 +277,17 @@
         socket.on('playerRegistered', (data) => {
             console.log('プレイヤー登録完了:', data);
             playerDisplayName = data.displayName;
+            playerUsername = data.username;
+            playerRating = data.rating;
             isGuest = data.isGuest;
             
             document.getElementById('currentPlayerName').textContent = playerDisplayName;
             
             if (isGuest) {
                 document.getElementById('guestIndicator').style.display = 'block';
-                document.getElementById('startMatchingButton').textContent = 'ランクマッチ開始（ゲストは参加不可）';
-                document.getElementById('startMatchingButton').disabled = true;
+                // ゲストもランクマッチ参加可能に変更
+                document.getElementById('startMatchingButton').textContent = 'ランクマッチ開始（ゲスト）';
+                document.getElementById('startMatchingButton').disabled = false;
             } else {
                 document.getElementById('guestIndicator').style.display = 'none';
                 document.getElementById('startMatchingButton').textContent = 'ランクマッチ開始';
@@ -306,7 +324,7 @@
 
         // ランクマッチング開始
         function startMatching() {
-            if (isMatching || isGuest) return;
+            if (isMatching) return;
             
             isMatching = true;
             socket.emit('startMatching');
@@ -401,9 +419,6 @@
             document.getElementById('gameType').textContent = 
                 data.isCustom ? 'カスタムマッチ' : 'ランクマッチ';
             
-            // 相手の名前を表示
-            document.getElementById('opponentName').textContent = data.opponent;
-            
             // ゲーム状態を更新
             updateGameState(data.gameState);
             
@@ -428,6 +443,20 @@
             
             document.getElementById('playerDeckCount').textContent = `デッキ (${gameState.myDeckCount})`;
             document.getElementById('enemyDeckCount').textContent = `デッキ (${gameState.opponentDeckCount})`;
+            
+            // プレイヤー情報を更新
+            if (gameState.myUsername && gameState.myRating) {
+                document.getElementById('myUsername').textContent = gameState.myUsername;
+                document.getElementById('myRating').textContent = `(${gameState.myRating})`;
+            }
+            
+            // 相手の情報を更新
+            if (gameState.opponentUsername && gameState.opponentRating) {
+                document.getElementById('opponentUsername').textContent = gameState.opponentUsername;
+                document.getElementById('opponentRating').textContent = `(${gameState.opponentRating})`;
+                document.getElementById('opponentUsernameBottom').textContent = gameState.opponentUsername;
+                document.getElementById('opponentRatingBottom').textContent = `(${gameState.opponentRating})`;
+            }
             
             // 相手のカードを表示（実際の値が見える）
             updateEnemyCards(gameState.opponentCards);
@@ -532,16 +561,24 @@
                 resultMessage.textContent = `${data.opponentName}に敗北しました...`;
             }
             
-            // レート変動表示（ランクマッチのみ）
-            if (!data.isCustom && !isGuest) {
+            // レート変動表示（ランクマッチかつゲストでない場合のみ）
+            if (!data.isCustom && !data.isGuest) {
                 ratingChange.style.display = 'block';
                 const changeText = data.ratingChange >= 0 ? `+${data.ratingChange}` : `${data.ratingChange}`;
                 ratingChangeText.textContent = `レート変動: ${changeText}`;
                 newRatingText.textContent = `新しいレート: ${data.newRating}`;
                 
                 // プレイヤー表示名も更新
+                playerRating = data.newRating;
                 playerDisplayName = playerDisplayName.replace(/\(\d+\)/, `(${data.newRating})`);
                 document.getElementById('currentPlayerName').textContent = playerDisplayName;
+            } else if (data.isGuest && !data.isCustom) {
+                // ゲストの場合は専用メッセージ
+                ratingChange.style.display = 'block';
+                ratingChangeText.textContent = 'ゲストユーザーのためレート変動なし';
+                newRatingText.textContent = 'アカウント登録でレートが保存されます';
+                ratingChangeText.style.color = '#ff6b6b';
+                newRatingText.style.color = '#666';
             } else {
                 ratingChange.style.display = 'none';
             }
