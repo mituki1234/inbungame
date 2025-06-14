@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>素数カード対戦</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+
+<body>
+    <div class="container">
+        <!-- 接続画面 -->
+        <div class="connectScreen" id="connectScreen">
+            <div class="connectContent">
+                <h2>素数カード対戦</h2>
+                <div class="playerInput">
+                    <label>プレイヤー名: </label>
+                    <input type="text" id="playerName" placeholder="プレイヤー名を入力" maxlength="20">
+                </div>
+                <button id="joinButton" onclick="joinGame()">参加</button>
+                <div id="connectionStatus">サーバーに接続中...</div>
+            </div>
+        </div>
+
+        <!-- スタート画面 -->
+        <div class="startScreen" id="startScreen" style="display: none;">
+            <div class="startContent">
+                <h2>ゲームルール</h2>
+                <p>ターゲットの数字を素因数で割り切って1にしよう！</p>
+                <p>先に手札を全て使い切った方が勝利です</p>
+                <div class="difficultyControl">
+                    <h3>難易度選択</h3>
+                    <div class="difficultyButtons">
+                        <button id="normalMode" class="difficultyBtn active"
+                            onclick="selectDifficulty('normal')">ノーマル</button>
+                        <button id="hardMode" class="difficultyBtn" onclick="selectDifficulty('hard')">ハード</button>
+                    </div>
+                    <p id="difficultyDescription">素数: 2, 3, 5, 7, 11, 13</p>
+                </div>
+                <div class="playerInfo">
+                    <p>プレイヤー: <span id="currentPlayerName"></span></p>
+                </div>
+                
+                <!-- マッチング選択 -->
+                <div class="matchingControl">
+                    <button id="startMatchingButton" onclick="startMatching()">ランクマッチ開始</button>
+                    <button id="createCustomButton" onclick="createCustomRoom()">カスタムマッチ作成</button>
+                    <div class="customJoinControl">
+                        <input type="text" id="roomCodeInput" placeholder="ルームコード" maxlength="6">
+                        <button onclick="joinCustomRoom()">参加</button>
+                    </div>
+                </div>
+                
+                <div id="matchingStatus" style="display: none;">
+                    <p id="matchingMessage">対戦相手を探しています...</p>
+                    <button onclick="cancelMatching()">キャンセル</button>
+                </div>
+                
+                <div id="customRoomStatus" style="display: none;">
+                    <h3>カスタムルーム作成完了</h3>
+                    <p>ルームコード: <strong id="roomCode"></strong></p>
+                    <p>相手がこのコードを入力するまで待機中...</p>
+                    <button onclick="cancelCustomRoom()">キャンセル</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- カウントダウン画面 -->
+        <div class="countdownScreen" id="countdownScreen" style="display: none;">
+            <div class="countdownContent">
+                <h2 id="countdownNumber">3</h2>
+                <p>ゲーム開始まで...</p>
+            </div>
+        </div>
+
+        <!-- ゲーム結果画面 -->
+        <div class="gameResultScreen" id="gameResultScreen" style="display: none;">
+            <div class="resultContent">
+                <h2 id="resultTitle">結果</h2>
+                <p id="resultMessage">メッセージ</p>
+                <div id="ratingChange" style="display: none;">
+                    <p id="ratingChangeText">レート変動: +0</p>
+                    <p id="newRatingText">新しいレート: 3000</p>
+                </div>
+                <div class="resultButtons">
+                    <button onclick="backToStart()">スタート画面に戻る</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ゲーム画面 -->
+        <div class="gameArea" id="gameArea" style="display: none;">
+            <div class="gameHeader">
+                <div class="difficultyDisplay">
+                    <span id="currentDifficulty">ノーマルモード</span>
+                    <span id="gameType"></span>
+                </div>
+                <div class="opponentInfo">
+                    <span id="opponentName">対戦相手</span>
+                </div>
+            </div>
+            
+            <div class="enemyCards" id="enemyCards">
+                <!-- 相手のカード枚数表示 -->
+            </div>
+            
+            <div class="targetCard">
+                <div class="enemyDeck">
+                    <span id="enemyDeckCount">デッキ</span>
+                </div>
+                <div class="targetCardInner">
+                    <span id="targetValue">10</span>
+                </div>
+                <div class="deck">
+                    <span id="playerDeckCount">デッキ</span>
+                </div>
+            </div>
+            
+            <div class="playerCards" id="playerCards">
+                <!-- プレイヤーのカード -->
+            </div>
+            
+            <div class="gameInfo">
+                <div class="playerInfo">
+                    <span>あなた: <span id="playerCardCount">0</span>枚</span>
+                </div>
+                <div class="enemyInfo">
+                    <span>相手: <span id="enemyCardCount">0</span>枚</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- ペナルティメッセージ -->
+        <div id="penaltyMessage" style="display: none;">
+            お手つき！ そのカードは使用できません
+        </div>
+    </div>
+
+    <script>
+        // Socket.IO接続
+        const socket = io();
+        
+        // ゲーム状態
+        let currentGameId = null;
+        let currentDifficulty = 'normal';
+        let isMatching = false;
+        let playerName = '';
+        let playerDisplayName = '';
+        let isConnected = false;
+        let currentRoomCode = null;
+
+        // 接続イベント
+        socket.on('connect', () => {
+            console.log('サーバーに接続しました');
+            isConnected = true;
+            document.getElementById('connectionStatus').textContent = 'サーバーに接続しました';
+            document.getElementById('joinButton').disabled = false;
+        });
+
+        socket.on('disconnect', () => {
+            console.log('サーバーから切断されました');
+            isConnected = false;
+            document.getElementById('connectionStatus').textContent = 'サーバーから切断されました';
+            showScreen('connectScreen');
+        });
+
+        // プレイヤー登録
+        function joinGame() {
+            const nameInput = document.getElementById('playerName');
+            const name = nameInput.value.trim();
+            
+            if (!name) {
+                alert('プレイヤー名を入力してください');
+                return;
+            }
+            
+            if (!isConnected) {
+                alert('サーバーに接続していません');
+                return;
+            }
+            
+            playerName = name;
+            socket.emit('joinGame', { name: playerName });
+        }
+
+        socket.on('playerRegistered', (data) => {
+            console.log('プレイヤー登録完了:', data);
+            playerDisplayName = data.displayName;
+            document.getElementById('currentPlayerName').textContent = playerDisplayName;
+            showScreen('startScreen');
+        });
+
+        // 難易度選択
+        function selectDifficulty(difficulty) {
+            currentDifficulty = difficulty;
+
+            document.querySelectorAll('.difficultyBtn').forEach(btn => btn.classList.remove('active'));
+
+            if (difficulty === 'normal') {
+                document.getElementById('normalMode').classList.add('active');
+                document.getElementById('difficultyDescription').textContent = '素数: 2, 3, 5, 7, 11, 13';
+            } else {
+                document.getElementById('hardMode').classList.add('active');
+                document.getElementById('difficultyDescription').textContent = '素数: 7, 11, 13, 17, 19, 23, 29, 31';
+            }
+        }
+
+        // ランクマッチング開始
+        function startMatching() {
+            if (isMatching) return;
+            
+            isMatching = true;
+            socket.emit('startMatching', { difficulty: currentDifficulty });
+            
+            document.getElementById('startMatchingButton').style.display = 'none';
+            document.getElementById('createCustomButton').style.display = 'none';
+            document.getElementById('matchingStatus').style.display = 'block';
+        }
+
+        // カスタムルーム作成
+        function createCustomRoom() {
+            socket.emit('createCustomRoom', { difficulty: currentDifficulty });
+        }
+
+        socket.on('customRoomCreated', (data) => {
+            currentRoomCode = data.roomCode;
+            document.getElementById('roomCode').textContent = data.roomCode;
+            document.getElementById('startMatchingButton').style.display = 'none';
+            document.getElementById('createCustomButton').style.display = 'none';
+            document.getElementById('customRoomStatus').style.display = 'block';
+        });
+
+        // カスタムルーム参加
+        function joinCustomRoom() {
+            const roomCode = document.getElementById('roomCodeInput').value.trim().toUpperCase();
+            if (!roomCode) {
+                alert('ルームコードを入力してください');
+                return;
+            }
+            
+            socket.emit('joinCustomRoom', { roomCode: roomCode });
+        }
+
+        // カスタムルームキャンセル
+        function cancelCustomRoom() {
+            currentRoomCode = null;
+            document.getElementById('startMatchingButton').style.display = 'block';
+            document.getElementById('createCustomButton').style.display = 'block';
+            document.getElementById('customRoomStatus').style.display = 'none';
+        }
+
+        // マッチングキャンセル
+        function cancelMatching() {
+            if (!isMatching) return;
+            
+            isMatching = false;
+            socket.emit('cancelMatching', { difficulty: currentDifficulty });
+            
+            document.getElementById('startMatchingButton').style.display = 'block';
+            document.getElementById('createCustomButton').style.display = 'block';
+            document.getElementById('matchingStatus').style.display = 'none';
+        }
+
+        // マッチング成功
+        socket.on('matchingStarted', (data) => {
+            console.log('マッチング開始:', data.message);
+        });
+
+        socket.on('matchingCancelled', (data) => {
+            console.log('マッチングキャンセル:', data.message);
+            isMatching = false;
+            document.getElementById('startMatchingButton').style.display = 'block';
+            document.getElementById('createCustomButton').style.display = 'block';
+            document.getElementById('matchingStatus').style.display = 'none';
+        });
+
+        // カウントダウン
+        socket.on('countdown', (data) => {
+            if (typeof data.count === 'number') {
+                document.getElementById('countdownNumber').textContent = data.count;
+            } else {
+                document.getElementById('countdownNumber').textContent = data.count;
+            }
+            
+            if (data.count === 'START!') {
+                setTimeout(() => {
+                    showScreen('gameArea');
+                }, 1000);
+            } else {
+                showScreen('countdownScreen');
+            }
+        });
+
+        // ゲーム開始
+        socket.on('gameStart', (data) => {
+            console.log('ゲーム開始:', data);
+            currentGameId = data.gameId;
+            isMatching = false;
+            currentRoomCode = null;
+            
+            // 難易度表示を更新
+            document.getElementById('currentDifficulty').textContent = 
+                data.difficulty === 'normal' ? 'ノーマルモード' : 'ハードモード';
+            
+            // ゲームタイプ表示
+            document.getElementById('gameType').textContent = 
+                data.isCustom ? ' [カスタム]' : ' [ランク]';
+            
+            // 相手の名前を表示
+            document.getElementById('opponentName').textContent = data.opponent;
+            
+            // ゲーム状態を更新
+            updateGameState(data.gameState);
+            
+            // ハートビートを開始
+            startHeartbeat();
+        });
+
+        // ゲーム状態更新
+        socket.on('gameUpdate', (gameState) => {
+            updateGameState(gameState);
+        });
+
+        // ゲーム状態を画面に反映
+        function updateGameState(gameState) {
+            document.getElementById('targetValue').textContent = gameState.targetValue;
+            
+            const totalMyCards = gameState.myCards.length + gameState.myDeckCount;
+            const totalOpponentCards = gameState.opponentCards + gameState.opponentDeckCount;
+            
+            document.getElementById('playerCardCount').textContent = totalMyCards;
+            document.getElementById('enemyCardCount').textContent = totalOpponentCards;
+            
+            document.getElementById('playerDeckCount').textContent = `デッキ (${gameState.myDeckCount})`;
+            document.getElementById('enemyDeckCount').textContent = `デッキ (${gameState.opponentDeckCount})`;
+            
+            updateEnemyCards(gameState.opponentCards);
+            updatePlayerCards(gameState.myCards);
+        }
+
+        // 相手のカード表示を更新
+        function updateEnemyCards(cardCount) {
+            const enemyCardsDiv = document.getElementById('enemyCards');
+            enemyCardsDiv.innerHTML = '';
+            
+            const cardsToShow = Math.min(5, cardCount);
+            for (let i = 0; i < cardsToShow; i++) {
+                const enemyCard = document.createElement('div');
+                enemyCard.classList.add('enemyCard');
+                enemyCard.innerHTML = '<span>?</span>';
+                enemyCardsDiv.appendChild(enemyCard);
+            }
+        }
+
+        // プレイヤーのカード表示を更新
+        function updatePlayerCards(cards) {
+            const playerCardsDiv = document.getElementById('playerCards');
+            playerCardsDiv.innerHTML = '';
+            
+            const cardsToShow = Math.min(5, cards.length);
+            for (let i = 0; i < cardsToShow; i++) {
+                const playerCard = document.createElement('div');
+                playerCard.classList.add('playerCard');
+                playerCard.innerHTML = `<span>${cards[i]}</span>`;
+                
+                playerCard.addEventListener('click', () => {
+                    playCard(i);
+                });
+                
+                playerCardsDiv.appendChild(playerCard);
+            }
+        }
+
+        // カードをプレイ
+        function playCard(cardIndex) {
+            if (!currentGameId) return;
+            
+            socket.emit('playCard', {
+                gameId: currentGameId,
+                cardIndex: cardIndex
+            });
+        }
+
+        // 無効な移動
+        socket.on('invalidMove', (data) => {
+            console.log('無効な移動:', data.message);
+            if (data.penalty) {
+                showPenaltyMessage();
+            }
+        });
+
+        // ペナルティメッセージ表示
+        function showPenaltyMessage() {
+            const penaltyMsg = document.getElementById('penaltyMessage');
+            penaltyMsg.style.display = 'block';
+            penaltyMsg.style.position = 'fixed';
+            penaltyMsg.style.top = '50%';
+            penaltyMsg.style.left = '50%';
+            penaltyMsg.style.transform = 'translate(-50%, -50%)';
+            penaltyMsg.style.background = 'rgba(255, 71, 87, 0.9)';
+            penaltyMsg.style.color = 'white';
+            penaltyMsg.style.padding = '15px 25px';
+            penaltyMsg.style.borderRadius = '10px';
+            penaltyMsg.style.fontWeight = 'bold';
+            penaltyMsg.style.fontSize = '1.2rem';
+            penaltyMsg.style.zIndex = '100';
+            penaltyMsg.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.3)';
+            
+            setTimeout(() => {
+                penaltyMsg.style.display = 'none';
+            }, 1500);
+        }
+
+        // ゲーム終了
+        socket.on('gameEnd', (data) => {
+            console.log('ゲーム終了:', data);
+            currentGameId = null;
+            
+            // ハートビートを停止
+            stopHeartbeat();
+            
+            // 結果画面を表示
+            const resultTitle = document.getElementById('resultTitle');
+            const resultMessage = document.getElementById('resultMessage');
+            const ratingChange = document.getElementById('ratingChange');
+            const ratingChangeText = document.getElementById('ratingChangeText');
+            const newRatingText = document.getElementById('newRatingText');
+            
+            if (data.isWinner) {
+                resultTitle.textContent = 'VICTORY!';
+                resultTitle.style.color = '#00d4ff';
+                resultMessage.textContent = `${data.opponentName}に勝利しました！`;
+            } else {
+                resultTitle.textContent = 'DEFEAT...';
+                resultTitle.style.color = '#ff4757';
+                resultMessage.textContent = `${data.opponentName}に敗北しました...`;
+            }
+            
+            // レート変動表示（ランクマッチのみ）
+            if (!data.isCustom) {
+                ratingChange.style.display = 'block';
+                const changeText = data.ratingChange >= 0 ? `+${data.ratingChange}` : `${data.ratingChange}`;
+                ratingChangeText.textContent = `レート変動: ${changeText}`;
+                newRatingText.textContent = `新しいレート: ${data.newRating}`;
+                
+                // プレイヤー表示名も更新
+                playerDisplayName = playerDisplayName.replace(/\(\d+\)/, `(${data.newRating})`);
+                document.getElementById('currentPlayerName').textContent = playerDisplayName;
+            } else {
+                ratingChange.style.display = 'none';
+            }
+            
+            showScreen('gameResultScreen');
+        });
+
+        // 相手の切断
+        socket.on('opponentDisconnected', (data) => {
+            console.log('相手が切断:', data.message);
+            alert(data.message);
+            backToStart();
+        });
+
+        // エラーハンドリング
+        socket.on('error', (data) => {
+            console.error('エラー:', data.message);
+            alert('エラー: ' + data.message);
+        });
+
+        // 画面切り替え
+        function showScreen(screenId) {
+            const screens = ['connectScreen', 'startScreen', 'gameArea', 'gameResultScreen', 'countdownScreen'];
+            screens.forEach(id => {
+                document.getElementById(id).style.display = id === screenId ? 'flex' : 'none';
+            });
+        }
+
+        // スタート画面に戻る
+        function backToStart() {
+            currentGameId = null;
+            isMatching = false;
+            currentRoomCode = null;
+            stopHeartbeat();
+            
+            // マッチング状態をリセット
+            document.getElementById('startMatchingButton').style.display = 'block';
+            document.getElementById('createCustomButton').style.display = 'block';
+            document.getElementById('matchingStatus').style.display = 'none';
+            document.getElementById('customRoomStatus').style.display = 'none';
+            document.getElementById('roomCodeInput').value = '';
+            
+            showScreen('startScreen');
+        }
+
+        // ハートビート（生存確認）
+        let heartbeatInterval = null;
+
+        function startHeartbeat() {
+            if (heartbeatInterval) return;
+            
+            heartbeatInterval = setInterval(() => {
+                if (currentGameId) {
+                    socket.emit('heartbeat', { gameId: currentGameId });
+                }
+            }, 5000);
+        }
+
+        function stopHeartbeat() {
+            if (heartbeatInterval) {
+                clearInterval(heartbeatInterval);
+                heartbeatInterval = null;
+            }
+        }
+
+        // 初期化
+        window.addEventListener('load', () => {
+            showScreen('connectScreen');
+            document.getElementById('joinButton').disabled = !isConnected;
+        });
+
+        // ページ離脱時の処理
+        window.addEventListener('beforeunload', () => {
+            if (currentGameId) {
+                socket.emit('heartbeat', { gameId: currentGameId });
+            }
+        });
+    </script>
+</body>
+
+</html>

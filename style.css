@@ -1,0 +1,639 @@
+/* Container */
+.container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    height: 100vh;
+    background-color: #f0f0f0;
+}
+
+/* Game Area */
+.gameArea {
+    width: 95%;
+    height: 90%;
+    background-color: #ffffff;
+    border: 2px solid #ccc;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+}
+
+/* Card Containers */
+.enemyCards,
+.playerCards {
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    flex-wrap: wrap;
+    width: 100%;
+    min-height: 120px;
+    margin: 20px 0;
+    gap: 10px;
+    padding: 0 10px;
+}
+
+/* Cards - デスクトップ用 */
+.enemyCard,
+.playerCard,
+.deck,
+.enemyDeck {
+    width: 80px;
+    height: 80px;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    margin: 5px;
+    flex-shrink: 0;
+}
+
+.enemyCard, .enemyDeck {
+    background-color: #333;
+}
+
+.enemyDeck span {
+    font-size: 0.9rem;
+    font-weight: bold;
+    color: #fff;
+    transform: rotate(180deg);
+    text-align: center;
+}
+
+.deck span {
+    font-size: 0.9rem;
+    font-weight: bold;
+    color: #333;
+    text-align: center;
+}
+
+.playerCard, .deck {
+    background-color: #fff;
+    border: 2px solid #333;
+    cursor: pointer;
+}
+
+.playerCard span {
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: #333;
+}
+
+.enemyCard span {
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: #fff;
+    transform: rotate(180deg);
+}
+
+/* Target Card */
+.targetCard {
+    width: 90%;
+    margin: 10px 0;
+    height: 100px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.targetCardInner {
+    margin: auto;
+    width: 80px;
+    height: 80px;
+    background-color: #777;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    color: white;
+}
+
+.targetCardInner span {
+    font-size: 1rem;
+    font-weight: bold;
+    word-break: break-all;
+    text-align: center;
+    padding: 5px;
+}
+
+/* ゲームプレイ用のアニメーション（残す） */
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-5px); }
+    75% { transform: translateX(5px); }
+}
+
+/* 敵カードのホバー効果を無効化 */
+.enemyCard {
+    cursor: default;
+    pointer-events: none;
+}
+
+/* プレイヤーターンでない時のカード無効化 */
+.playerCard.disabled {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+/* ゲームコントロール */
+.gameControls {
+    margin: 20px 0;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    justify-content: center;
+}
+
+.speedControl {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+#aiSpeed {
+    width: 150px;
+}
+
+button {
+    padding: 10px 20px;
+    border: none;
+    background-color: #2196F3;
+    color: white;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: bold;
+    border-radius: 5px;
+}
+
+button:hover {
+    background-color: #1976D2;
+}
+
+/* ゲームステータス */
+.gameStatus {
+    display: flex;
+    justify-content: space-around;
+    margin: 20px 0;
+    font-size: 18px;
+    font-weight: bold;
+}
+
+.playerStatus {
+    color: #2196F3;
+}
+
+.enemyStatus {
+    color: #f44336;
+}
+
+.menu {
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    position: absolute;
+    width: 80%;
+    height: 80%;
+    top: 110px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+}
+
+.header {
+    width: 100%;
+    height: 100px;
+    text-align: center;
+}
+
+/* スタート画面 */
+.startScreen {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #777;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.startContent {
+    background: white;
+    padding: 30px;
+    border: 2px solid #ccc;
+    text-align: center;
+    max-width: 500px;
+    margin: 20px;
+    border-radius: 10px;
+}
+
+.startContent h2 {
+    color: #333;
+    margin-bottom: 20px;
+    font-size: 1.5rem;
+}
+
+.startContent p {
+    color: #666;
+    margin-bottom: 15px;
+    line-height: 1.6;
+    font-size: 0.9rem;
+}
+
+/* ゲーム結果画面 */
+.gameResultScreen {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.resultContent {
+    background: white;
+    padding: 30px;
+    border-radius: 20px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    text-align: center;
+    max-width: 400px;
+    margin: 20px;
+}
+
+.resultContent h2 {
+    font-size: 2rem;
+    margin-bottom: 20px;
+}
+
+.resultContent p {
+    color: #666;
+    margin-bottom: 30px;
+    line-height: 1.6;
+    font-size: 0.9rem;
+}
+
+.resultButtons {
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.resultButtons button {
+    padding: 12px 20px;
+    font-size: 14px;
+}
+
+/* ゲーム情報 */
+.gameInfo {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    padding: 15px;
+    background: #f5f5f5;
+    border-top: 2px solid #ddd;
+    flex-shrink: 0;
+}
+
+.playerInfo, .enemyInfo {
+    font-size: 16px;
+    font-weight: bold;
+}
+
+.playerInfo {
+    color: #2196F3;
+}
+
+.enemyInfo {
+    color: #f44336;
+}
+
+/* ゲームエリアの調整 */
+.gameArea {
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+/* 難易度選択 */
+.difficultyControl {
+    margin: 20px 0;
+    text-align: center;
+}
+
+.difficultyControl h3 {
+    color: #333;
+    margin-bottom: 15px;
+    font-size: 1.2rem;
+}
+
+.difficultyButtons {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin-bottom: 15px;
+    flex-wrap: wrap;
+}
+
+.difficultyBtn {
+    padding: 8px 16px;
+    border: 2px solid #2196F3;
+    background: white;
+    color: #2196F3;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 14px;
+}
+
+.difficultyBtn:hover {
+    background-color: #f0f8ff;
+}
+
+.difficultyBtn.active {
+    background: #2196F3;
+    color: white;
+}
+
+#difficultyDescription {
+    color: #666;
+    font-size: 0.8rem;
+    font-style: italic;
+}
+
+/* 難易度表示 */
+.difficultyDisplay {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: #f0f8ff;
+    border: 1px solid #2196F3;
+    padding: 5px 10px;
+    border-radius: 15px;
+    color: #2196F3;
+    font-size: 0.8rem;
+    font-weight: bold;
+    z-index: 10;
+}
+
+/* モバイル対応 */
+@media (max-width: 768px) {
+    .container {
+        padding: 10px;
+    }
+    
+    .gameArea {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+    }
+    
+    /* カードサイズをモバイル用に調整 */
+    .enemyCard,
+    .playerCard,
+    .deck,
+    .enemyDeck {
+        width: 60px;
+        height: 60px;
+        margin: 3px;
+    }
+    
+    .targetCardInner {
+        width: 60px;
+        height: 60px;
+    }
+    
+    .targetCardInner span {
+        font-size: 0.8rem;
+    }
+    
+    .playerCard span,
+    .enemyCard span {
+        font-size: 1rem;
+    }
+    
+    .deck span,
+    .enemyDeck span {
+        font-size: 0.7rem;
+    }
+    
+    /* カードコンテナの調整 */
+    .enemyCards,
+    .playerCards {
+        min-height: 80px;
+        margin: 10px 0;
+        padding: 0 5px;
+    }
+    
+    .targetCard {
+        height: 80px;
+        margin: 5px 0;
+    }
+    
+    /* スタート画面の調整 */
+    .startContent {
+        padding: 20px;
+        margin: 10px;
+        max-width: 90%;
+    }
+    
+    .startContent h2 {
+        font-size: 1.3rem;
+    }
+    
+    .startContent p {
+        font-size: 0.8rem;
+    }
+    
+    /* 結果画面の調整 */
+    .resultContent {
+        padding: 20px;
+        margin: 10px;
+        max-width: 90%;
+    }
+    
+    .resultContent h2 {
+        font-size: 1.5rem;
+    }
+    
+    .resultButtons {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    /* ゲーム情報の調整 */
+    .gameInfo {
+        padding: 10px;
+        flex-direction: column;
+        gap: 5px;
+    }
+    
+    .playerInfo, .enemyInfo {
+        font-size: 14px;
+    }
+    
+    /* 難易度選択の調整 */
+    .difficultyControl {
+        margin: 15px 0;
+    }
+    
+    .difficultyControl h3 {
+        font-size: 1.1rem;
+    }
+    
+    .difficultyButtons {
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+    }
+    
+    .difficultyBtn {
+        padding: 8px 20px;
+        font-size: 13px;
+    }
+    
+    /* 難易度表示の調整 */
+    .difficultyDisplay {
+        position: static;
+        margin-bottom: 10px;
+        text-align: center;
+        font-size: 0.7rem;
+        padding: 3px 8px;
+    }
+    
+    /* ボタンの調整 */
+    button {
+        padding: 8px 16px;
+        font-size: 13px;
+    }
+    
+    /* スピードコントロールの調整 */
+    .speedControl {
+        flex-direction: column;
+        gap: 5px;
+        text-align: center;
+    }
+    
+    #aiSpeed {
+        width: 120px;
+    }
+    
+    /* 接続画面の調整 */
+    .connectContent {
+        padding: 20px;
+        margin: 10px;
+        max-width: 90%;
+    }
+    
+    .connectContent h2 {
+        font-size: 1.3rem;
+    }
+    
+    .playerInput input {
+        font-size: 16px; /* iOSでズームを防ぐ */
+    }
+    
+    /* カウントダウン画面の調整 */
+    .countdownContent {
+        padding: 30px;
+        margin: 10px;
+        max-width: 90%;
+    }
+    
+    .countdownContent h2 {
+        font-size: 3rem;
+    }
+    
+    .countdownContent p {
+        font-size: 1rem;
+    }
+    
+    /* マッチング関連の調整 */
+    .customJoinControl {
+        flex-direction: column;
+        gap: 8px;
+    }
+    
+    .customJoinControl input {
+        width: 100%;
+        box-sizing: border-box;
+    }
+    
+    #matchingStatus, #customRoomStatus {
+        padding: 15px;
+        margin-top: 15px;
+    }
+    
+    #roomCode {
+        font-size: 1.2rem;
+        padding: 8px 12px;
+    }
+}
+
+/* 超小画面対応 */
+@media (max-width: 480px) {
+    .enemyCard,
+    .playerCard,
+    .deck,
+    .enemyDeck {
+        width: 50px;
+        height: 50px;
+        margin: 2px;
+    }
+    
+    .targetCardInner {
+        width: 50px;
+        height: 50px;
+    }
+    
+    .targetCardInner span {
+        font-size: 0.7rem;
+    }
+    
+    .playerCard span,
+    .enemyCard span {
+        font-size: 0.9rem;
+    }
+    
+    .deck span,
+    .enemyDeck span {
+        font-size: 0.6rem;
+    }
+    
+    .startContent,
+    .resultContent {
+        padding: 15px;
+    }
+    
+    .startContent h2 {
+        font-size: 1.2rem;
+    }
+    
+    .resultContent h2 {
+        font-size: 1.3rem;
+    }
+    
+    .connectContent,
+    .countdownContent {
+        padding: 15px;
+    }
+    
+    .connectContent h2 {
+        font-size: 1.2rem;
+    }
+    
+    .countdownContent h2 {
+        font-size: 2.5rem;
+    }
+}

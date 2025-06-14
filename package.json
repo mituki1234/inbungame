@@ -1,0 +1,17 @@
+{
+    "name": "prime-card-game",
+    "version": "1.0.0",
+    "description": "素数カードゲーム オンライン対戦",
+    "main": "server.js",
+    "scripts": {
+        "start": "node server.js",
+        "dev": "nodemon server.js"
+    },
+    "dependencies": {
+        "express": "^4.21.2",
+        "socket.io": "^4.8.1"
+    },
+    "devDependencies": {
+        "nodemon": "^3.0.1"
+    }
+}
