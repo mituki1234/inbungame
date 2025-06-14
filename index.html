@@ -30,14 +30,13 @@
                 <h2>ゲームルール</h2>
                 <p>ターゲットの数字を素因数で割り切って1にしよう！</p>
                 <p>先に手札を全て使い切った方が勝利です</p>
-                <div class="difficultyControl">
-                    <h3>難易度選択</h3>
-                    <div class="difficultyButtons">
-                        <button id="normalMode" class="difficultyBtn active"
-                            onclick="selectDifficulty('normal')">ノーマル</button>
-                        <button id="hardMode" class="difficultyBtn" onclick="selectDifficulty('hard')">ハード</button>
-                    </div>
-                    <p id="difficultyDescription">素数: 2, 3, 5, 7, 11, 13</p>
+                <div class="primeInfo">
+                    <p><strong>使用する素数:</strong> 2, 3, 5, 7, 11, 13</p>
+                    <p><strong>各素数の最大出現回数:</strong></p>
+                    <ul>
+                        <li>2: 6回, 3: 5回, 5: 4回</li>
+                        <li>7: 4回, 11: 3回, 13: 3回</li>
+                    </ul>
                 </div>
                 <div class="playerInfo">
                     <p>プレイヤー: <span id="currentPlayerName"></span></p>
@@ -93,8 +92,7 @@
         <!-- ゲーム画面 -->
         <div class="gameArea" id="gameArea" style="display: none;">
             <div class="gameHeader">
-                <div class="difficultyDisplay">
-                    <span id="currentDifficulty">ノーマルモード</span>
+                <div class="gameTypeDisplay">
                     <span id="gameType"></span>
                 </div>
                 <div class="opponentInfo">
@@ -103,7 +101,7 @@
             </div>
             
             <div class="enemyCards" id="enemyCards">
-                <!-- 相手のカード枚数表示 -->
+                <!-- 相手のカード -->
             </div>
             
             <div class="targetCard">
@@ -144,7 +142,6 @@
         
         // ゲーム状態
         let currentGameId = null;
-        let currentDifficulty = 'normal';
         let isMatching = false;
         let playerName = '';
         let playerDisplayName = '';
@@ -192,27 +189,12 @@
             showScreen('startScreen');
         });
 
-        // 難易度選択
-        function selectDifficulty(difficulty) {
-            currentDifficulty = difficulty;
-
-            document.querySelectorAll('.difficultyBtn').forEach(btn => btn.classList.remove('active'));
-
-            if (difficulty === 'normal') {
-                document.getElementById('normalMode').classList.add('active');
-                document.getElementById('difficultyDescription').textContent = '素数: 2, 3, 5, 7, 11, 13';
-            } else {
-                document.getElementById('hardMode').classList.add('active');
-                document.getElementById('difficultyDescription').textContent = '素数: 7, 11, 13, 17, 19, 23, 29, 31';
-            }
-        }
-
         // ランクマッチング開始
         function startMatching() {
             if (isMatching) return;
             
             isMatching = true;
-            socket.emit('startMatching', { difficulty: currentDifficulty });
+            socket.emit('startMatching');
             
             document.getElementById('startMatchingButton').style.display = 'none';
             document.getElementById('createCustomButton').style.display = 'none';
@@ -221,7 +203,7 @@
 
         // カスタムルーム作成
         function createCustomRoom() {
-            socket.emit('createCustomRoom', { difficulty: currentDifficulty });
+            socket.emit('createCustomRoom');
         }
 
         socket.on('customRoomCreated', (data) => {
@@ -256,7 +238,7 @@
             if (!isMatching) return;
             
             isMatching = false;
-            socket.emit('cancelMatching', { difficulty: currentDifficulty });
+            socket.emit('cancelMatching');
             
             document.getElementById('startMatchingButton').style.display = 'block';
             document.getElementById('createCustomButton').style.display = 'block';
@@ -300,13 +282,9 @@
             isMatching = false;
             currentRoomCode = null;
             
-            // 難易度表示を更新
-            document.getElementById('currentDifficulty').textContent = 
-                data.difficulty === 'normal' ? 'ノーマルモード' : 'ハードモード';
-            
             // ゲームタイプ表示
             document.getElementById('gameType').textContent = 
-                data.isCustom ? ' [カスタム]' : ' [ランク]';
+                data.isCustom ? 'カスタムマッチ' : 'ランクマッチ';
             
             // 相手の名前を表示
             document.getElementById('opponentName').textContent = data.opponent;
@@ -328,7 +306,7 @@
             document.getElementById('targetValue').textContent = gameState.targetValue;
             
             const totalMyCards = gameState.myCards.length + gameState.myDeckCount;
-            const totalOpponentCards = gameState.opponentCards + gameState.opponentDeckCount;
+            const totalOpponentCards = gameState.opponentCards.length + gameState.opponentDeckCount;
             
             document.getElementById('playerCardCount').textContent = totalMyCards;
             document.getElementById('enemyCardCount').textContent = totalOpponentCards;
@@ -336,20 +314,21 @@
             document.getElementById('playerDeckCount').textContent = `デッキ (${gameState.myDeckCount})`;
             document.getElementById('enemyDeckCount').textContent = `デッキ (${gameState.opponentDeckCount})`;
             
+            // 相手のカードを表示（実際の値が見える）
             updateEnemyCards(gameState.opponentCards);
             updatePlayerCards(gameState.myCards);
         }
 
-        // 相手のカード表示を更新
-        function updateEnemyCards(cardCount) {
+        // 相手のカード表示を更新（実際の値を表示）
+        function updateEnemyCards(opponentCards) {
             const enemyCardsDiv = document.getElementById('enemyCards');
             enemyCardsDiv.innerHTML = '';
             
-            const cardsToShow = Math.min(5, cardCount);
+            const cardsToShow = Math.min(5, opponentCards.length);
             for (let i = 0; i < cardsToShow; i++) {
                 const enemyCard = document.createElement('div');
                 enemyCard.classList.add('enemyCard');
-                enemyCard.innerHTML = '<span>?</span>';
+                enemyCard.innerHTML = `<span>${opponentCards[i]}</span>`; // 実際の値を表示
                 enemyCardsDiv.appendChild(enemyCard);
             }
         }
