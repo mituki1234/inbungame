@@ -2,6 +2,8 @@ const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const path = require('path');
+const sqlite3 = require('sqlite3').verbose();
+const bcrypt = require('bcrypt');
 
 const app = express();
 const server = http.createServer(app);
@@ -12,16 +14,38 @@ const io = socketIo(server, {
     }
 });
 
+// JSON解析用
+app.use(express.json());
+
 // 静的ファイルの提供
 app.use(express.static(path.join(__dirname)));
 
+// データベース初期化
+const db = new sqlite3.Database('./game.db');
+
+// テーブル作成
+db.serialize(() => {
+    db.run(`CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password TEXT,
+        pronoun TEXT,
+        rating INTEGER DEFAULT 3000,
+        wins INTEGER DEFAULT 0,
+        losses INTEGER DEFAULT 0,
+        is_guest INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_login DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+});
+
 // ゲーム管理用のデータ構造
 const players = new Map(); // playerId -> playerData
-const waitingPlayers = []; // playerIdの配列（難易度削除）
+const waitingPlayers = []; // playerIdの配列
 const activeGames = new Map(); // gameId -> gameState
 const customRooms = new Map(); // roomCode -> {host, guest}
 
-// 素数配列（ハードモード削除）
+// 素数配列
 const primes = [2, 3, 5, 7, 11, 13];
 const fieldCardUpperLimit = 5;
 
@@ -37,6 +61,101 @@ const maxPrimeCount = {
 
 // 代名詞リスト
 const pronouns = ['あなた', 'わたし', 'きみ', 'やつ', 'おまえ', 'じぶん', 'われ', 'おれ'];
+
+// ユーザー認証関数
+async function authenticateUser(username, password, isGuest = false) {
+    return new Promise((resolve, reject) => {
+        if (isGuest) {
+            // ゲストユーザーの場合
+            const tempId = Date.now() + Math.random();
+            const pronoun = pronouns[Math.floor(Math.random() * pronouns.length)];
+            
+            const guestUser = {
+                id: tempId,
+                username: `ゲスト${tempId.toString().slice(-6)}`,
+                pronoun: pronoun,
+                rating: 3000,
+                wins: 0,
+                losses: 0,
+                is_guest: true,
+                displayName: `${pronoun}(3000)`
+            };
+            
+            resolve(guestUser);
+        } else {
+            // 登録ユーザーの場合
+            db.get('SELECT * FROM users WHERE username = ?', [username], async (err, user) => {
+                if (err) {
+                    reject(err);
+                    return;
+                }
+                
+                if (user) {
+                    // 既存ユーザー
+                    if (user.password && password) {
+                        // パスワードが設定されている場合
+                        const isValid = await bcrypt.compare(password, user.password);
+                        if (isValid) {
+                            // ログイン時間更新
+                            db.run('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?', [user.id]);
+                            
+                            user.displayName = `${user.pronoun}(${user.rating})`;
+                            resolve(user);
+                        } else {
+                            reject(new Error('パスワードが間違っています'));
+                        }
+                    } else if (!user.password && !password) {
+                        // パスワードなしユーザー
+                        db.run('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?', [user.id]);
+                        
+                        user.displayName = `${user.pronoun}(${user.rating})`;
+                        resolve(user);
+                    } else {
+                        reject(new Error('認証情報が正しくありません'));
+                    }
+                } else {
+                    // 新規ユーザー
+                    const pronoun = pronouns[Math.floor(Math.random() * pronouns.length)];
+                    const hashedPassword = password ? await bcrypt.hash(password, 10) : null;
+                    
+                    db.run(`INSERT INTO users (username, password, pronoun, is_guest) VALUES (?, ?, ?, ?)`, 
+                        [username, hashedPassword, pronoun, 0], 
+                        function(err) {
+                            if (err) {
+                                reject(err);
+                                return;
+                            }
+                            
+                            const newUser = {
+                                id: this.lastID,
+                                username: username,
+                                pronoun: pronoun,
+                                rating: 3000,
+                                wins: 0,
+                                losses: 0,
+                                is_guest: false,
+                                displayName: `${pronoun}(3000)`
+                            };
+                            
+                            resolve(newUser);
+                        }
+                    );
+                }
+            });
+        }
+    });
+}
+
+// レート更新関数
+function updateUserRating(userId, newRating, isWinner) {
+    if (typeof userId === 'string' && userId.includes('temp')) {
+        // ゲストユーザーの場合は更新しない
+        return;
+    }
+    
+    const winColumn = isWinner ? 'wins = wins + 1' : 'losses = losses + 1';
+    db.run(`UPDATE users SET rating = ?, ${winColumn} WHERE id = ?`, [newRating, userId]);
+}
 
 // レート計算関数
 function calculateRatingChange(playerRating, opponentRating, isWinner) {
@@ -114,13 +233,13 @@ class GameState {
         const countdownInterval = setInterval(() => {
             if (count > 0) {
                 // カウントダウンを両プレイヤーに送信
-                io.to(this.player1.id).emit('countdown', { count });
-                io.to(this.player2.id).emit('countdown', { count });
+                io.to(this.player1.socketId).emit('countdown', { count });
+                io.to(this.player2.socketId).emit('countdown', { count });
                 count--;
             } else {
                 // START!
-                io.to(this.player1.id).emit('countdown', { count: 'START!' });
-                io.to(this.player2.id).emit('countdown', { count: 'START!' });
+                io.to(this.player1.socketId).emit('countdown', { count: 'START!' });
+                io.to(this.player2.socketId).emit('countdown', { count: 'START!' });
                 
                 // ゲーム開始
                 setTimeout(() => {
@@ -128,8 +247,8 @@ class GameState {
                     this.startForceCheck();
                     
                     // ゲーム状態を両プレイヤーに送信
-                    io.to(this.player1.id).emit('gameUpdate', this.getGameStateForPlayer(this.player1.id));
-                    io.to(this.player2.id).emit('gameUpdate', this.getGameStateForPlayer(this.player2.id));
+                    io.to(this.player1.socketId).emit('gameUpdate', this.getGameStateForPlayer(this.player1.socketId));
+                    io.to(this.player2.socketId).emit('gameUpdate', this.getGameStateForPlayer(this.player2.socketId));
                 }, 1000);
                 
                 clearInterval(countdownInterval);
@@ -207,10 +326,10 @@ class GameState {
 
     checkWinCondition() {
         if (this.player1Deck.length === 0 && this.player1Cards.length === 0) {
-            return this.player1.id;
+            return this.player1.socketId;
         }
         if (this.player2Deck.length === 0 && this.player2Cards.length === 0) {
-            return this.player2.id;
+            return this.player2.socketId;
         }
         return null;
     }
@@ -255,14 +374,14 @@ class GameState {
                 console.log('強制割り算を実行');
                 this.compulsionDivision();
                 
-                io.to(this.player1.id).emit('gameUpdate', this.getGameStateForPlayer(this.player1.id));
-                io.to(this.player2.id).emit('gameUpdate', this.getGameStateForPlayer(this.player2.id));
+                io.to(this.player1.socketId).emit('gameUpdate', this.getGameStateForPlayer(this.player1.socketId));
+                io.to(this.player2.socketId).emit('gameUpdate', this.getGameStateForPlayer(this.player2.socketId));
             }
         }, 1000);
     }
 
     getGameStateForPlayer(playerId) {
-        const isPlayer1 = playerId === this.player1.id;
+        const isPlayer1 = playerId === this.player1.socketId;
         
         return {
             gameId: this.gameId,
@@ -290,28 +409,34 @@ io.on('connection', (socket) => {
     console.log('プレイヤー接続:', socket.id);
 
     // プレイヤー登録
-    socket.on('joinGame', (playerData) => {
-        const pronoun = pronouns[Math.floor(Math.random() * pronouns.length)];
-        const player = {
-            id: socket.id,
-            name: playerData.name || `プレイヤー${socket.id.substring(0, 6)}`,
-            pronoun: pronoun,
-            rating: 3000, // 初期レート3000
-            displayName: `${pronoun}(3000)`
-        };
-        
-        players.set(socket.id, player);
-        
-        socket.emit('playerRegistered', {
-            id: socket.id,
-            name: player.name,
-            pronoun: player.pronoun,
-            rating: player.rating,
-            displayName: player.displayName,
-            message: '登録完了'
-        });
-        
-        console.log('プレイヤー登録:', player.displayName);
+    socket.on('joinGame', async (playerData) => {
+        try {
+            const { username, password, isGuest } = playerData;
+            
+            const user = await authenticateUser(username, password, isGuest);
+            
+            // ソケットIDを追加
+            user.socketId = socket.id;
+            
+            players.set(socket.id, user);
+            
+            socket.emit('playerRegistered', {
+                id: socket.id,
+                username: user.username,
+                pronoun: user.pronoun,
+                rating: user.rating,
+                displayName: user.displayName,
+                isGuest: user.is_guest,
+                message: '認証完了'
+            });
+            
+            console.log('プレイヤー登録:', user.displayName);
+        } catch (error) {
+            console.error('認証エラー:', error);
+            socket.emit('authError', {
+                message: error.message
+            });
+        }
     });
 
     // ランダムマッチング開始
@@ -380,7 +505,7 @@ io.on('connection', (socket) => {
             return;
         }
 
-        if (room.host.id === socket.id) {
+        if (room.host.socketId === socket.id) {
             socket.emit('error', { message: '自分のルームには参加できません' });
             return;
         }
@@ -412,7 +537,7 @@ io.on('connection', (socket) => {
             return;
         }
 
-        const isPlayer1 = socket.id === game.player1.id;
+        const isPlayer1 = socket.id === game.player1.socketId;
         const playerCards = isPlayer1 ? game.player1Cards : game.player2Cards;
         
         if (cardIndex >= playerCards.length) {
@@ -452,8 +577,8 @@ io.on('connection', (socket) => {
                 game.player2Alive = Date.now();
             }
 
-            io.to(game.player1.id).emit('gameUpdate', game.getGameStateForPlayer(game.player1.id));
-            io.to(game.player2.id).emit('gameUpdate', game.getGameStateForPlayer(game.player2.id));
+            io.to(game.player1.socketId).emit('gameUpdate', game.getGameStateForPlayer(game.player1.socketId));
+            io.to(game.player2.socketId).emit('gameUpdate', game.getGameStateForPlayer(game.player2.socketId));
         }
 
         console.log(`${isPlayer1 ? game.player1.displayName : game.player2.displayName} がカードを使用: ${cardValue}`);
@@ -465,7 +590,7 @@ io.on('connection', (socket) => {
         const game = activeGames.get(gameId);
         
         if (game && game.status === 'playing') {
-            const isPlayer1 = socket.id === game.player1.id;
+            const isPlayer1 = socket.id === game.player1.socketId;
             const now = Date.now();
             
             if (isPlayer1) {
@@ -484,20 +609,20 @@ io.on('connection', (socket) => {
         
         // カスタムルーム削除
         for (const [roomCode, room] of customRooms.entries()) {
-            if (room.host.id === socket.id) {
+            if (room.host.socketId === socket.id) {
                 customRooms.delete(roomCode);
             }
         }
         
         for (const [gameId, game] of activeGames.entries()) {
-            if (game.player1.id === socket.id || game.player2.id === socket.id) {
-                const opponent = game.player1.id === socket.id ? game.player2 : game.player1;
+            if (game.player1.socketId === socket.id || game.player2.socketId === socket.id) {
+                const opponent = game.player1.socketId === socket.id ? game.player2 : game.player1;
                 
                 if (game.status === 'playing' || game.status === 'countdown') {
                     game.status = 'finished';
-                    game.winner = opponent.id;
+                    game.winner = opponent.socketId;
                     
-                    io.to(opponent.id).emit('opponentDisconnected', {
+                    io.to(opponent.socketId).emit('opponentDisconnected', {
                         message: '相手が切断しました。あなたの勝利です！'
                     });
                     
@@ -566,18 +691,18 @@ function createGame(player1, player2, isCustom) {
     
     activeGames.set(gameId, game);
     
-    io.to(player1.id).emit('gameStart', {
+    io.to(player1.socketId).emit('gameStart', {
         gameId: gameId,
         opponent: player2.displayName,
         isCustom: isCustom,
-        gameState: game.getGameStateForPlayer(player1.id)
+        gameState: game.getGameStateForPlayer(player1.socketId)
     });
     
-    io.to(player2.id).emit('gameStart', {
+    io.to(player2.socketId).emit('gameStart', {
         gameId: gameId,
         opponent: player1.displayName,
         isCustom: isCustom,
-        gameState: game.getGameStateForPlayer(player2.id)
+        gameState: game.getGameStateForPlayer(player2.socketId)
     });
     
     console.log(`ゲーム作成: ${player1.displayName} vs ${player2.displayName} ${isCustom ? '[Custom]' : '[Ranked]'}`);
@@ -589,8 +714,8 @@ function endGame(gameId) {
     
     if (!game) return;
     
-    const player1 = players.get(game.player1.id);
-    const player2 = players.get(game.player2.id);
+    const player1 = players.get(game.player1.socketId);
+    const player2 = players.get(game.player2.socketId);
     
     if (!player1 || !player2) {
         game.cleanup();
@@ -598,8 +723,8 @@ function endGame(gameId) {
         return;
     }
 
-    const isPlayer1Winner = game.winner === game.player1.id;
-    const isPlayer2Winner = game.winner === game.player2.id;
+    const isPlayer1Winner = game.winner === game.player1.socketId;
+    const isPlayer2Winner = game.winner === game.player2.socketId;
     
     let ratingChanges = { player1: 0, player2: 0 };
     
@@ -616,12 +741,16 @@ function endGame(gameId) {
         player1.displayName = `${player1.pronoun}(${player1.rating})`;
         player2.displayName = `${player2.pronoun}(${player2.rating})`;
         
-        players.set(player1.id, player1);
-        players.set(player2.id, player2);
+        // データベースに保存
+        updateUserRating(player1.id, player1.rating, isPlayer1Winner);
+        updateUserRating(player2.id, player2.rating, isPlayer2Winner);
+        
+        players.set(game.player1.socketId, player1);
+        players.set(game.player2.socketId, player2);
     }
     
     // 結果送信
-    io.to(game.player1.id).emit('gameEnd', {
+    io.to(game.player1.socketId).emit('gameEnd', {
         winner: game.winner,
         isWinner: isPlayer1Winner,
         opponentName: player2.displayName,
@@ -630,7 +759,7 @@ function endGame(gameId) {
         isCustom: game.isCustom
     });
     
-    io.to(game.player2.id).emit('gameEnd', {
+    io.to(game.player2.socketId).emit('gameEnd', {
         winner: game.winner,
         isWinner: isPlayer2Winner,
         opponentName: player1.displayName,
@@ -657,4 +786,15 @@ function removeFromWaiting(playerId) {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
     console.log(`サーバーがポート ${PORT} で起動しました`);
+});
+
+// データベース接続終了処理
+process.on('SIGINT', () => {
+    db.close((err) => {
+        if (err) {
+            console.error(err.message);
+        }
+        console.log('データベース接続を閉じました');
+        process.exit(0);
+    });
 });
