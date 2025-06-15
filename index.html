@@ -199,6 +199,8 @@
         let currentRoomCode = null;
         let isGuest = false;
         let currentAuthMode = 'login';
+        let isPenalized = false; // ペナルティ状態を追加
+        let penaltyTimeout = null; // ペナルティタイマーを追加
 
         // 接続イベント
         socket.on('connect', () => {
@@ -477,28 +479,9 @@
             }
         }
 
-        // プレイヤーのカード表示を更新
-        function updatePlayerCards(cards) {
-            const playerCardsDiv = document.getElementById('playerCards');
-            playerCardsDiv.innerHTML = '';
-            
-            const cardsToShow = Math.min(5, cards.length);
-            for (let i = 0; i < cardsToShow; i++) {
-                const playerCard = document.createElement('div');
-                playerCard.classList.add('playerCard');
-                playerCard.innerHTML = `<span>${cards[i]}</span>`;
-                
-                playerCard.addEventListener('click', () => {
-                    playCard(i);
-                });
-                
-                playerCardsDiv.appendChild(playerCard);
-            }
-        }
-
         // カードをプレイ
         function playCard(cardIndex) {
-            if (!currentGameId) return;
+            if (!currentGameId || isPenalized) return; // ペナルティ中は操作無効
             
             socket.emit('playCard', {
                 gameId: currentGameId,
@@ -516,6 +499,13 @@
 
         // ペナルティメッセージ表示
         function showPenaltyMessage() {
+            // 既にペナルティ中の場合、前のタイマーをクリア
+            if (penaltyTimeout) {
+                clearTimeout(penaltyTimeout);
+            }
+            
+            isPenalized = true; // ペナルティ開始
+            
             const penaltyMsg = document.getElementById('penaltyMessage');
             penaltyMsg.style.display = 'block';
             penaltyMsg.style.position = 'fixed';
@@ -531,15 +521,120 @@
             penaltyMsg.style.zIndex = '100';
             penaltyMsg.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.3)';
             
-            setTimeout(() => {
+            // カードを無効化（視覚的フィードバック）
+            updateCardsPenaltyState(true);
+            
+            penaltyTimeout = setTimeout(() => {
                 penaltyMsg.style.display = 'none';
-            }, 1500);
+                isPenalized = false; // ペナルティ解除
+                updateCardsPenaltyState(false); // カードを有効化
+                penaltyTimeout = null;
+            }, 2000);
         }
 
-        // ゲーム終了
+        // カードのペナルティ状態を更新
+        function updateCardsPenaltyState(penalized) {
+            const playerCards = document.querySelectorAll('.playerCard');
+            playerCards.forEach(card => {
+                if (penalized) {
+                    card.style.pointerEvents = 'none';
+                    card.style.opacity = '0.5';
+                    card.style.filter = 'grayscale(100%)';
+                    card.style.cursor = 'not-allowed';
+                } else {
+                    card.style.pointerEvents = 'auto';
+                    card.style.opacity = '1';
+                    card.style.filter = 'none';
+                    card.style.cursor = 'pointer';
+                }
+            });
+        }
+
+        // プレイヤーのカード表示を更新
+        function updatePlayerCards(cards) {
+            const playerCardsDiv = document.getElementById('playerCards');
+            playerCardsDiv.innerHTML = '';
+            
+            const cardsToShow = Math.min(5, cards.length);
+            for (let i = 0; i < cardsToShow; i++) {
+                const playerCard = document.createElement('div');
+                playerCard.classList.add('playerCard');
+                playerCard.innerHTML = `<span>${cards[i]}</span>`;
+                
+                // カードにホバーエフェクトを追加
+                playerCard.style.cursor = 'pointer';
+                playerCard.style.transition = 'all 0.2s ease';
+                
+                playerCard.addEventListener('click', () => {
+                    playCard(i);
+                });
+                
+                // ホバーエフェクト
+                playerCard.addEventListener('mouseenter', () => {
+                    if (!isPenalized) {
+                        playerCard.style.transform = 'scale(1.05)';
+                        playerCard.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
+                    }
+                });
+                
+                playerCard.addEventListener('mouseleave', () => {
+                    if (!isPenalized) {
+                        playerCard.style.transform = 'scale(1)';
+                        playerCard.style.boxShadow = 'none';
+                    }
+                });
+                
+                playerCardsDiv.appendChild(playerCard);
+            }
+            
+            // ペナルティ状態を反映
+            if (isPenalized) {
+                updateCardsPenaltyState(true);
+            }
+        }
+
+        // スタート画面に戻る
+        function backToStart() {
+            currentGameId = null;
+            isMatching = false;
+            currentRoomCode = null;
+            isPenalized = false; // ペナルティ状態リセット
+            
+            // ペナルティタイマーをクリア
+            if (penaltyTimeout) {
+                clearTimeout(penaltyTimeout);
+                penaltyTimeout = null;
+            }
+            
+            stopHeartbeat();
+            
+            // マッチング状態をリセット
+            document.getElementById('startMatchingButton').style.display = 'block';
+            document.getElementById('createCustomButton').style.display = 'block';
+            document.getElementById('matchingStatus').style.display = 'none';
+            document.getElementById('customRoomStatus').style.display = 'none';
+            document.getElementById('roomCodeInput').value = '';
+            
+            // ペナルティメッセージを非表示
+            document.getElementById('penaltyMessage').style.display = 'none';
+            
+            showScreen('startScreen');
+        }
+
+        // ゲーム終了時のクリーンアップ
         socket.on('gameEnd', (data) => {
             console.log('ゲーム終了:', data);
             currentGameId = null;
+            
+            // ペナルティ状態をリセット
+            isPenalized = false;
+            if (penaltyTimeout) {
+                clearTimeout(penaltyTimeout);
+                penaltyTimeout = null;
+            }
+            
+            // ペナルティメッセージを非表示
+            document.getElementById('penaltyMessage').style.display = 'none';
             
             // ハートビートを停止
             stopHeartbeat();
@@ -612,6 +707,14 @@
             currentGameId = null;
             isMatching = false;
             currentRoomCode = null;
+            isPenalized = false; // ペナルティ状態リセット
+            
+            // ペナルティタイマーをクリア
+            if (penaltyTimeout) {
+                clearTimeout(penaltyTimeout);
+                penaltyTimeout = null;
+            }
+            
             stopHeartbeat();
             
             // マッチング状態をリセット
@@ -620,6 +723,9 @@
             document.getElementById('matchingStatus').style.display = 'none';
             document.getElementById('customRoomStatus').style.display = 'none';
             document.getElementById('roomCodeInput').value = '';
+            
+            // ペナルティメッセージを非表示
+            document.getElementById('penaltyMessage').style.display = 'none';
             
             showScreen('startScreen');
         }
